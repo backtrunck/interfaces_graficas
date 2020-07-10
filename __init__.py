@@ -60,9 +60,29 @@ class ScrolledText(Frame):
         
     def go_end(self):
         self.text.see(END)
-        
+
+class ChkButton(Checkbutton):
+    
+    def __init__(self, master, value=0, **kwarg):
+        super().__init__(master, **kwarg)
+        self.__value = IntVar()
+        self.config(variable=self.__value)
+
+
+    def get(self):
+        return self.__value.get()
+
+
+    def set(self):
+        self.__value.set(1)
+
+
+    def unset(self):
+        self.__value.set(0)
+
 
 class ScrolledTextHandler(logging.StreamHandler):    
+    
     def __init__(self, scrolled_text):
         logging.StreamHandler.__init__(self)
         self.scroll = scrolled_text        
@@ -96,10 +116,16 @@ def show_modal_win(win):
     
 if __name__ == '__main__':
     win = Tk()
-    win.title('Teste ScrolledText')
-    text = 'Isto é um teste \n' * 100
-    scroll = ScrolledText(win, text=text)
-    scroll.pack()
-    scroll.go_end()    
+    win.title('Teste')
+#    text = 'Isto é um teste \n' * 100
+#    scroll = ScrolledText(win, text=text)
+#    scroll.pack()
+#    scroll.go_end()
+    chk = ChkButton(win, width=15, anchor='w', text='teste')
+    chk.pack()
+    bt = Button(win, text='Setar', command=chk.set)
+    bt.pack(side=LEFT)
+    bt = Button(win, text='Limpar', command=chk.unset)
+    bt.pack(side=RIGHT)
     win.mainloop()
 
