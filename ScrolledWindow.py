@@ -62,7 +62,7 @@ class ScrolledWindow(tk.Frame):
         self.yscrlbr.config(command=self.canv.yview)
 
         # creating a frame to inserto to canvas
-        self.scrollwindow = ttk.Frame(self.canv)
+        self.scrollwindow = ttk.Frame(self.canv, width = 10, heigh=10)
 
 
         self.canv.create_window(0, 0, window = self.scrollwindow, anchor = 'nw')
@@ -97,6 +97,9 @@ class ScrolledWindow(tk.Frame):
         if self.scrollwindow.winfo_reqwidth() != self.canv.winfo_width():
            # update the canvas's width to fit the inner frame
            self.canv.config(width = self.scrollwindow.winfo_reqwidth())
+#        if self.scrollwindow.winfo_reqheight() != self.canv.winfo_height():
+#            #update the canvas's width to fit the inner frame
+#           self.scrollwindow.config(height = self.canv.winfo_reqheight())
         
     def _configure_window_header(self, event):
         size = (self.scroll_header.winfo_reqwidth(), self.scroll_header.winfo_reqheight())

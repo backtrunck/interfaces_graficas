@@ -5,11 +5,13 @@ from collections import OrderedDict, namedtuple
 from sqlalchemy.sql import select, sqltypes
 #from interfaces_graficas.ScrolledWindow import ScrolledWindow
 from ..ScrolledWindow import ScrolledWindow
-from .. import ChkButton
+from .. import ChkButton, EntryDate
 from util import string_to_date, formatar_data, is_valid_date
 from fields import Field
+#from nfce_models import products_gtin_t, classe_produto_t
 DBField = namedtuple("DBField", ['field_name', 'comparison_operator', 'label', 'width', 'type_widget'])
 SearchField = namedtuple("Filter", ['field_name', 'comparison_operator', 'label', 'width'])
+FormControl = namedtuple('FormControl', ['field_name', 'comparison_operator', 'label', 'width', 'type_widget', 'widget'])
 
 class ComboBoxDB(ttk.Combobox):
     
@@ -62,14 +64,20 @@ class ComboBoxDB(ttk.Combobox):
 class FrameForm(tk.Frame):
     
     
-    def __init__(self, master, connection,grid_table=None, **args):
+    def __init__(self, master, connection,data_table=None, grid_table=None, **args):
         '''
             Parametros:
                 (master:tkinter.widget): Widget pai
                 (connection:object): Conecção com o banco de dados
                 (data_table:object): Tabela 
         '''
-        
+        self.data_table = data_table
+#        if grid_table == None:
+#            
+#            super().__init__(master, connection, grid_table=grid_table, **args)
+#        else:
+#            super().__init__(master, connection, grid_table=data_table, **args)  
+            
         super().__init__(master, **args)
         self.controls = OrderedDict()
         self.conn = connection
@@ -92,7 +100,7 @@ class FrameForm(tk.Frame):
             self.grid_select_stm = select(self.grid_table.c).distinct()
             f = tk.Frame(self)
             f.pack(fill=tk.X)
-            self.scroll = ScrolledWindow(f, canv_w=450, canv_h = 200, scroll_h = False)
+            self.scroll = ScrolledWindow(f, canv_w=450, canv_h = 200, scroll_h = True)
             self.scroll.pack(pady=2)
             self.scrolled_frame = tk.Frame(self.scroll.scrollwindow)       #Frame que ficará dentro do ScrolledWindows
             self.scrolled_frame.grid(row = 0, column = 0)
@@ -101,6 +109,7 @@ class FrameForm(tk.Frame):
         self.tool_bar.pack(fill=tk.X)
         tk.Button(self.tool_bar, text='Fechar', width = 10, command=self.close).pack(side=tk.RIGHT, padx=2, pady=5)
 
+    
     @property
     def form(self):
         return self._form
@@ -112,7 +121,15 @@ class FrameForm(tk.Frame):
                 (name_widget:string) Nome único do campo, vai ser a chave(key) de self.controls
                 (widget:tk.Widget) classe (class) do widget a ser inserido no form.
         '''
-        self.controls[name_widget] = widget
+        if type(name_widget) == DBField:
+            self.controls[name_widget.label]  =  FormControl(field_name = name_widget.field_name, 
+                                                             comparison_operator=name_widget.comparison_operator, 
+                                                             label = name_widget.label, 
+                                                             width = name_widget.width, 
+                                                             type_widget = name_widget.type_widget, 
+                                                             widget = widget)
+        else:
+            self.controls[name_widget] = widget
 
 
     def add_widget_tool_bar(self, **kwargs):
@@ -127,7 +144,7 @@ class FrameForm(tk.Frame):
             Limpa todos os campos do form
         '''
         for key in self.controls.keys():
-            form_widget = self.controls[key]
+            form_widget = self.controls[key].widget
             self.set_widget_data(form_widget, '')
 
 
@@ -140,6 +157,11 @@ class FrameForm(tk.Frame):
                 
                 widget.grid_forget()
                 widget.destroy()
+        self.scroll.canv.xview_moveto(0)
+        self.scroll.canv.yview_moveto(0)
+        self.scroll.scrollwindow.config(width = 10, heigh=10)
+#        self.scrolled_frame.grid(row = 0, column = 0)
+#        self.scroll.pack(pady=2, expand=1)
 
 
     def clear_grid_line(self, row):
@@ -158,39 +180,6 @@ class FrameForm(tk.Frame):
         self.master.destroy()
     
 
-    def convert_data_to_bd(self, data):
-        '''
-            Pega cada item do dicionario passado (data) e convert para o tipo específico de cada coluna no banco 
-            de dados. É necessário que as chaves do dicionário passado sejam iguais aos nomes dos campos no banco
-            de dados
-            Parâmetros:
-                (data:dictionarie) Dicionario com os valores a serem convertidos para o tipos de cada campo corres-
-                pondente do banco.
-        '''
-        datum={}
-        for key in data.keys():
-            col = self.data_table.c.get(key)
-            if col.type._type_affinity in [sqltypes.Date, sqltypes.DateTime]:
-                if is_valid_date(data[key]):
-                    datum[key] = string_to_date(data[key])
-                else:
-                    datum[key] = None
-            elif col.type._type_affinity in [sqltypes.Integer]:
-                try: 
-                    datum[key] = int(data[key])
-                except ValueError:
-                    datum[key] = None
-            elif col.type._type_affinity in [sqltypes.Float, sqltypes.Numeric]:
-                try:
-                    datum[key] = float(data[key])
-                except ValueError:
-                    datum[key] = None
-            elif col.type._type_affinity in [sqltypes.String]:
-                datum[key] = data[key]
-            else:
-                raise(Exception(f'Tipo do campo tratado: {col.type._type_affinity}'))
-        return datum
-
     
     def create_row_header(self, header=[], **kargs):
         '''
@@ -202,7 +191,7 @@ class FrameForm(tk.Frame):
                 (header:list) lista com os labels a serem mostrados na ordem no cabeçalho
                 
         '''
-        if self.columns:                    #se columns contiver objetos SearchField
+        if self.columns:                    #se columns contiver objetos DBField
             for col, field in enumerate(self.columns):
                 e = tk.Label(self.frame_header,text=field.label, width=field.width)
                 e.grid(row = 0,column=col, sticky=tk.W)            
@@ -212,11 +201,18 @@ class FrameForm(tk.Frame):
                     value = header[col]
                 except IndexError:
                     value = key        
-                e = tk.Label(self.frame_header,text=value, width=self.controls[key]['width'])
+                e = tk.Label(self.frame_header,text=value, width=self.controls[key].widget['width'])
                 e.grid(row = 0,column=col, sticky=tk.W)
 
 
-    def create_row_widget(self, widget_class=None, widget_name='',value='', row=0, column=0, width=11, **kargs):
+    def create_row_widget(self, widget_class=None, 
+                                widget_name='',
+                                widget_field_name='',
+                                value='', 
+                                row=0, 
+                                column=0, 
+                                width=11, 
+                                **kargs):
         '''
             Cria os widgets do grid, com os respectivos dados
         '''
@@ -229,6 +225,7 @@ class FrameForm(tk.Frame):
             e.grid(row = row,column=column)
             e.insert(0, value)
             e.name = widget_name
+            e.field_name = widget_field_name
             e.bind("<Key>", lambda a: "break")
             e.bind('<ButtonRelease>', self.row_click)        
             e.config(state=tk.DISABLED)
@@ -266,12 +263,15 @@ class FrameForm(tk.Frame):
         '''
         if not self.columns:
             for col, key in enumerate(self.controls.keys()):
-                self.create_row_widget(widget_class=tk.Entry, widget_name=key, value=data_row[key], 
-                                        row=row, column=col, width=self.controls[key]['width'])
+                self.create_row_widget(widget_class=tk.Entry, widget_name=key, 
+                                       widget_field_name=self.controls[key].field_name, value=data_row[key],
+                                       row=row, column=col, width=self.controls[key].widget['width'])
         else:
             for col, field in enumerate(self.columns):
                 self.create_row_widget( widget_class=field.type_widget, 
-                                        widget_name=field.field_name,
+                                        #widget_name=field.field_name,
+                                        widget_name=field.label, 
+                                        widget_field_name=field.field_name, 
                                         value=data_row[field.field_name], 
                                         row=row,
                                         column=col,
@@ -287,6 +287,10 @@ class FrameForm(tk.Frame):
         widgets = [widget for widget in self.scrolled_frame.grid_slaves() if widget.grid_info()['row'] == row]
         for widget in widgets:
             widget.grid_forget()        #apaga o widget
+    
+    
+    def get_key_by_field_name(self, field_name):
+        return [frame_field.label for key, frame_field in self.controls.items() if frame_field.field_name == field_name][0]
 
 
     def get_form_data(self, get_extra_data=False):
@@ -295,7 +299,7 @@ class FrameForm(tk.Frame):
         '''
         datum = {}
         for key in self.controls.keys():
-            form_widget = self.controls[key]
+            form_widget = self.controls[key].widget
             datum[key] = self.get_widget_data(form_widget)
             
             if get_extra_data and type(form_widget) == ComboBoxDB: #se for um combo pega (ou não) o valor do campo descritivo (caso tenha este propriedade)
@@ -304,18 +308,19 @@ class FrameForm(tk.Frame):
                 except AttributeError:
                     pass
         return(datum)
-
+    
 
     def get_form_keys(self):
         '''
             Obtém os dados dos campos do formulaŕio que são chaves primárias da tabela
         '''
+       
+        data = self.get_form_data()
         datum = {}
-        for key in self.controls.keys():
-            column = self.data_table.c[key]
-            widget = self.controls[key]
-            if column.primary_key:
-                datum[key]  = self.get_widget_data(widget)
+        for field_name in self.data_table.c.keys():
+            column = self.data_table.c[field_name]
+            if column.primary_key:                
+                datum[field_name]  = data[self.get_key_by_field_name(field_name)]  #pega o chave pelo nome do campo
         return datum
 
 
@@ -331,7 +336,20 @@ class FrameForm(tk.Frame):
         if row > 0:
             widgets_data = {widget.name:self.get_widget_data(widget) for widget in self.scrolled_frame.grid_slaves() if widget.grid_info()['row'] == row}
         return widgets_data
-
+        
+    def get_grid_data_by_fieldname(self, row):
+        '''
+            Pega os dados da linha (row) passada como parâmetro e coloca num dicionário indexados pelo nome do campo
+            parametros
+                (row:int) Linha do grid que se vai obter os dados
+            retorno
+                (widgets:dictionary) Dados obtidos da linha na forma 'campo:valor'            
+        '''
+        widgets_data = {}
+        if row > 0:
+            widgets_data = {widget.field_name:self.get_widget_data(widget) for widget in self.scrolled_frame.grid_slaves() if widget.grid_info()['row'] == row}
+        return widgets_data
+        
     def get_grid_dbdata(self):
         '''
             Obtem os dados do Banco de Dados e preenche o grid
@@ -346,10 +364,10 @@ class FrameForm(tk.Frame):
         '''
         data = self.get_grid_data(row)
         datum = {}
-        for key in self.data_table.c.keys():
-            column = self.data_table.c[key]
-            if column.primary_key:
-                datum[key]  = data[key]
+        for field_name in self.data_table.c.keys():
+            column = self.data_table.c[field_name]
+            if column.primary_key:                
+                datum[field_name]  = data[self.get_key_by_field_name(field_name)]  #pega o chave pelo nome do campo
         return datum
 
 
@@ -367,7 +385,7 @@ class FrameForm(tk.Frame):
                 return ""
             else:
                 return result
-        elif type(widget) == ChkButton:
+        elif type(widget) == ChkButton or type(widget) == EntryDate:
             return widget.get()
            
    
@@ -392,12 +410,15 @@ class FrameForm(tk.Frame):
 
 
     def set_data_columns(self):
+        '''
+            Ajusta as colunas do select
+        '''
         sel = []
         for field in self.columns:
             sel.append(self.grid_table.c.get(field.field_name))
         self.grid_select_stm = select(sel).distinct() 
 
-
+            
     def set_form_data(self, datum):
         '''
             Atualiza o contêudo dos widgets do form com os dados passados no parâmetros datum
@@ -407,7 +428,7 @@ class FrameForm(tk.Frame):
         '''
         for key in self.controls.keys():
             data = datum[key]
-            form_widget = self.controls[key]
+            form_widget = self.controls[key].widget
             self.set_widget_data(form_widget, data)
 
 
@@ -479,6 +500,13 @@ class FrameForm(tk.Frame):
             else:
                 widget.unset()
             return 0
+        elif type(widget) == EntryDate:
+            last_state = widget['state']
+            widget.config(state=tk.NORMAL)
+            widget.delete(0, tk.END)
+            widget.set(data)
+            widget.config(state=last_state)
+            return 0
         else:
             return -1
 
@@ -488,34 +516,25 @@ class FrameForm(tk.Frame):
         return formatar_data(dt) 
 
 
-class FrameGridManipulation(FrameForm):
+class FrameFormDB(FrameForm):
     
     
-    def __init__(self, master, connection, data_table=None,grid_table=None, **args):
-        
-        self.data_table = data_table
-        if grid_table != None:
-            super().__init__(master, connection, grid_table=grid_table, **args)
-        else:
-            super().__init__(master, connection, grid_table=data_table, **args)            
-        
-        
-        self.add_widget_tool_bar(text='Salvar', width = 10, command=self.update)
-        self.add_widget_tool_bar(text='Apagar', width = 10, command=self.delete)
-        self.add_widget_tool_bar(text='Novo', width = 10, command=self.new)
+    def __init__(self,  master, connection, data_table=None,grid_table=None, **args):
+        super().__init__( master, connection, data_table=data_table,grid_table=grid_table, **args)
+    
+    def get_form_dbdata(self, form_data):
+        return self.get_dbdata(form_data, self.data_table)
 
-    def add_widget(self, name_widget, widget):
-        self.controls[name_widget] = widget
 
-    
     def check_form_for_update(self, insert=False):
         '''
-            Verifica se os dados do formulário estão aptos a serem salvos, conforme a configurção dos campos do banco de dados
+            Verifica se os dados do formulário estão aptos a serem salvos, 
+            conforme a estrutura do banco de dados
         '''
         
         for key in self.controls.keys():
-            col = self.data_table.c.get(key)
-            data = self.get_widget_data(self.controls[key])
+            col = self.data_table.c.get(self.controls[key].field_name)
+            data = self.get_widget_data(self.controls[key].widget)
             
             if (not col.nullable and not data and not insert) or (insert and not col.nullable and not data and not col.autoincrement):
                 return (key, 'null')
@@ -539,6 +558,256 @@ class FrameGridManipulation(FrameForm):
             else:
                 raise(Exception(f'Tipo do campo tratado: {col.type._type_affinity}'))
         return('', '')
+
+    def convert_data_to_bd(self, data):
+        '''
+            Pega cada item do dicionario passado (data) e convert para o tipo específico de cada coluna no banco 
+            de dados. É necessário que as chaves do dicionário passado sejam iguais aos nomes dos campos no banco
+            de dados
+            Parâmetros:
+                (data:dictionarie) Dicionario com os valores a serem convertidos para o tipos de cada campo corres-
+                pondente do banco.
+        '''
+        datum={}
+        for key in data.keys():
+            col = self.data_table.c.get(self.controls[key].field_name)
+            if col.type._type_affinity in [sqltypes.Date, sqltypes.DateTime]:
+                if is_valid_date(data[key]):
+                    datum[col.name] = string_to_date(data[key])
+                else:
+                    datum[col.name] = None
+            elif col.type._type_affinity in [sqltypes.Integer]:
+                try: 
+                    datum[col.name] = int(data[key])
+                except ValueError:
+                    datum[col.name] = None
+            elif col.type._type_affinity in [sqltypes.Float, sqltypes.Numeric]:
+                try:
+                    datum[col.name] = float(data[key])
+                except ValueError:
+                    datum[col.name] = None
+            elif col.type._type_affinity in [sqltypes.String]:
+                datum[col.name] = data[key]
+            else:
+                raise(Exception(f'Tipo do campo tratado: {col.type._type_affinity}'))
+        return datum
+
+
+    def get_auto_increment_values(self, data):
+        '''
+            Obtem os dados dos campos autoincrement do formulário
+        '''
+        datum = {}
+        for key in data.keys():
+            if self.data_table.c.get(key).autoincrement == True:
+                result = self.conn.execute(f'select auto_increment from information_schema.tables where table_name = "{self.data_table.name}" LOCK IN SHARE MODE ')
+                datum[key] = result.fetchone()[0]
+            else:
+                datum[key] = data[key]
+        return datum
+
+
+    def get_dbdata(self, form_data, table):
+        '''
+            Obtem dados do banco de dados a partir de um dicionario de dados passado. Pega-se deste dicionario
+            somente os dados correspondentes às chaves primárias da tabela(table). Busca os dados no banco e 
+            retorna-os
+            
+            Parâmetros
+                (form_data:dictionary) Dados de onde se vai retirar as chaves que vão filtrar os dados do banco de dados
+                (table:slqAlchemyTable) Tabela do banco de dados onde se vai obter os dados
+            return
+                (row_proxy) com os dados obtidos do banco de dados
+        '''
+    
+        sel = select(table.c)
+        
+        for key in form_data.keys():
+            column = self.data_table.c[key]  #tem que usar self.data_table para que se possa usar as chaves primárias          
+            if column.primary_key:
+                sel = sel.where(table.c.get(key) == form_data[key])
+        result = self.conn.execute(sel)
+        return result.fetchone()
+
+
+    def set_form_dbdata(self, datum):
+        '''
+            Atualiza o conteúdo dos widget do form com os dados vindo do Banco de dados. os dados do banco estão
+            "indexados" pelo nome da coluna e os controles no form estão "indexados" pelo labels. Esta procedimento
+            faz a correspondência
+            parâmetros(datum:data_row): Dados vindos do banco de dados
+        '''
+        data = {}
+        for key in self.controls.keys():
+            field_name = self.controls[key].field_name
+            #key = self.get_key_by_field_name(field_name)
+            data[key] = datum[field_name]
+        self.set_form_data(data)
+    
+
+
+class FrameFormData(FrameFormDB):
+    STATE_UPDATE = 0
+    STATE_INSERT = 1    
+    
+    def __init__(self, master, connection, data_table=None, state=STATE_UPDATE,keys=[],   **args):
+        
+        self.data_table = data_table
+                
+        super().__init__(master, connection,data_table=data_table, grid_table=None, **args)
+        self.state=state
+        
+        if self.state == self.STATE_UPDATE:
+            self.keys=keys
+            if self.check_keys():
+                return  None
+        else:
+            self.keys = None
+
+        self.add_widget_tool_bar(text='Salvar', width = 10, command=self.update)
+        self.add_widget_tool_bar(text='Apagar', width = 10, command=self.delete)
+        self.add_widget_tool_bar(text='Novo', width = 10, command=self.new)
+        
+        
+            
+        
+
+    def check_keys(self):
+        '''
+            Verifica se todas as chaves primárias da tabela estão em self.keys
+        '''
+        try:
+                 
+            for field_name in self.data_table.c.keys(): #loop em todos os campos da tabela
+                column = self.data_table.c[field_name]
+                if column.primary_key:
+                    self.keys[field_name]   #se o campo não existir em self.keys, dá erro (não tem todas as chaves)
+        except KeyError:
+            raise Exception(f'Chaves Primárias incompletas para a tabela {self.data_table.name}')
+            return 1
+        return 0
+
+    def get_db_data(self):
+        result_proxy = self.conn.execute(select(self.data_table.c).where(self.keys)) 
+        return result_proxy.fetchone()
+
+
+    def delete(self):
+        '''
+            Apaga a linha atual do grid e a correspondente do banco de dados 
+        '''
+        if self.state == self.STATE_UPDATE:                 
+            if not askokcancel('Delete', 'Confirme a Operação'):
+                return
+            dlt = self.data_table.delete()
+            for key in self.keys:
+                dlt = dlt.where(self.data_table.c[key] == self.keys[key])
+            self.conn.execute(dlt)
+            self.new()
+
+    def get_form_dbdata(self, data):
+        return super().get_dbdata(data, self.data_table)
+
+    def insert(self):
+        '''
+            Insere os dados do formulário no banco de dados
+        '''
+        try:
+            transaction = self.conn.begin()
+            form_data = self.convert_data_to_bd(self.get_form_data())
+            form_data = self.get_auto_increment_values(form_data)
+            ins = self.data_table.insert().values(**form_data)
+            self.conn.execute(ins)
+            transaction.commit()            
+        except Exception as e:
+            transaction.rollback()
+            print(f'Error: {e}')
+            return -1
+        self.keys = self.get_form_keys()
+        self.state = self.STATE_UPDATE
+        data = self.get_form_dbdata(self.keys) 
+        self.set_form_dbdata(data)
+
+        return 0
+
+    def new(self):
+        '''
+            Limpa o form e ajusta o status
+        '''
+        
+        self.clear_form()
+        self.keys = None
+        self.state = self.STATE_INSERT
+
+    def set_filter(self,stm, form_data):
+        for key, value in self.keys:
+            stm.where(self.data_table[key] == value)
+#        for key in form_data:
+#            if form_data[key]:
+#                field_name = self.filters[key].field_name
+#                if self.filters[key].comparison_operator == Field.OP_LIKE:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.data_table.c[field_name].like(form_data[key])) 
+#                elif self.filters[key].comparison_operator == Field.OP_GREATER:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] > form_data[key]) 
+#                elif self.filters[key].comparison_operator == Field.OP_LESS:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] < form_data[key]) 
+#                elif self.filters[key].comparison_operator == Field.OP_GREATER_EQUAL:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] >= form_data[key]) 
+#                elif self.filters[key].comparison_operator == Field.OP_LESS_EQUAL:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] <= form_data[key]) 
+#                elif self.filters[key].comparison_operator == Field.OP_EQUAL:
+#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key]) 
+
+
+    def update(self):
+        '''
+            Atualiza o banco de dados com os dados do form
+        '''   
+        try:
+            if self.state == self.STATE_INSERT:
+                result = self.check_form_for_update(insert=True)
+            else:
+                result = self.check_form_for_update(insert=False)            
+            if not result[0]:
+                if self.state == self.STATE_INSERT:
+                    return self.insert()
+                form_data = self.convert_data_to_bd(self.get_form_data())
+                form_keys = self.get_form_keys()
+                #grid_keys = self.get_grid_keys(self.last_clicked_row)
+                updt = self.data_table.update()
+                #for key in grid_keys:
+                for key in self.keys:
+                    updt = updt.where(self.data_table.c[key] == self.keys[key])
+                updt = updt.values(**form_data)
+                self.conn.execute(updt)
+                for key in form_keys:
+                    self.keys[key] = form_keys[key]
+                #self.set_grid_line()                
+                return 0
+            return -1
+        except Exception as e:
+            print(e)
+            return -1
+
+
+class FrameGridManipulation(FrameFormDB):
+    
+    
+    def __init__(self, master, connection, data_table=None,grid_table=None, **args):
+        
+#        self.data_table = data_table
+        if grid_table != None:
+            super().__init__(master, connection, data_table = data_table, grid_table=grid_table, **args)
+        else:
+            super().__init__(master, connection,data_table = data_table, grid_table=data_table, **args)            
+        
+        
+        self.add_widget_tool_bar(text='Salvar', width = 10, command=self.update)
+        self.add_widget_tool_bar(text='Apagar', width = 10, command=self.delete)
+        self.add_widget_tool_bar(text='Novo', width = 10, command=self.new)
+
+#    def add_widget(self, name_widget, widget):
+#        self.controls[name_widget] = widget
 
     
     def delete(self):
@@ -571,51 +840,40 @@ class FrameGridManipulation(FrameForm):
             form_data = self.get_auto_increment_values(form_data)
             ins = self.data_table.insert().values(**form_data)
             self.conn.execute(ins)
-            transaction.commit()
-            self.last_inserted_row +=1           
-            result = self.get_form_dbdata(form_data)
-            self.fill_row(self.last_inserted_row, result)
-            self.last_clicked_row = self.last_inserted_row
-            self.set_form_data(self.get_grid_data(self.last_clicked_row))
+            transaction.commit()            
         except Exception as e:
             transaction.rollback()
             print(f'Error: {e}')
             return -1
+        self.last_inserted_row +=1           
+        result = self.__get_dbdata(form_data)
+        self.fill_row(self.last_inserted_row, result)
+        self.last_clicked_row = self.last_inserted_row
+        self.set_form_data(self.get_grid_data(self.last_clicked_row))
+            
             
         return 0
+   
 
 
-    def get_auto_increment_values(self, data):
-        '''
-            Obtem os dados dos campos autoincrement do formulário
-        '''
-        datum = {}
-        for key in data.keys():
-            if self.data_table.c.get(key).autoincrement == True:
-                result = self.conn.execute(f'select auto_increment from information_schema.tables where table_name = "{self.data_table.name}" LOCK IN SHARE MODE ')
-                datum[key] = result.fetchone()[0]
-            else:
-                datum[key] = data[key]
-        return datum
-
-
-    def get_form_dbdata(self, form_data):
-        '''
-            Obtem dados do banco de dados a partir dos dados das chaves primárias do formulário
-            Parâmetros
-                (form_data:dictionary) Dados de onde se vai retirar as chaves que vão filtrar os dados do banco de dados
-            return
-                (row_proxy) com os dados obtidos do banco de dados
-        '''
-        #sel = select(self.data_table.c)   
-        sel = select(self.grid_table.c)
-        for key in form_data.keys():
-            column = self.data_table.c[key]            
-            if column.primary_key:
-                #sel = sel.where(self.data_table.c.get(key) == form_data[key])
-                sel = sel.where(self.grid_table.c.get(key) == form_data[key])
-        result = self.conn.execute(sel)
-        return result.fetchone()
+#    def get_form_dbdata(self, form_data):
+#        '''
+#            Obtem dados do banco de dados a partir dos dados das chaves primárias do formulário
+#            Parâmetros
+#                (form_data:dictionary) Dados de onde se vai retirar as chaves que vão filtrar os dados do banco de dados
+#            return
+#                (row_proxy) com os dados obtidos do banco de dados
+#        '''
+#        #sel = select(self.data_table.c)   
+#        sel = select(self.grid_table.c)
+#        for key in form_data.keys():
+#            column = self.self.grid_table.c[key]            
+#            if column.primary_key:
+#                sel = sel.where(self.grid_table.c.get(key) == form_data[key])
+#        result = self.conn.execute(sel)
+#        return result.fetchone()
+    def __get_dbdata(self, form_data):
+        return self.get_dbdata(form_data, self.grid_table)
 
 
     def get_grid_next_line(self, row):
@@ -673,10 +931,10 @@ class FrameGridManipulation(FrameForm):
 class FrameGridSearch(FrameForm):
     def __init__(self, master, connection, grid_table=None, **kwargs):
         
-        self.filters = {}
+        #self.filters = {}
         if grid_table == None:
             return None            
-        super().__init__(master, connection, grid_table=grid_table, **kwargs)
+        super().__init__(master, connection, data_table=None, grid_table=grid_table, **kwargs)
         self._form_search = tk.Frame(self._form)
         self._form_search.pack(fill=tk.X)
         
@@ -694,9 +952,26 @@ class FrameGridSearch(FrameForm):
                         label(nome opcional do campo, usado quando se vai usar o mesmo campo mais de uma vez na pesquisa)
                         Ex (field_name='cnpj', comparison_operator='=',label='cnpj_1'). Vai compor os filtros da pesquisa
         '''
-        super().add_widget(filter.label, widget)
-        self.filters[filter.label] = filter  
+        super().add_widget(filter, widget)
+        #self.filters[filter.label] = filter  
 
+#    def fill_row(self, row, data_row):
+#        '''
+#            Criar os widgets do grid a partir dos controles do form(self.controls) e já preenche os dados nele
+#        '''
+#        if not self.columns:
+#            for col, key in enumerate(self.controls.keys()):
+#                self.create_row_widget(widget_class=tk.Entry, widget_name=key, value=data_row[key], 
+#                                        row=row, column=col, width=self.controls[key].widget['width'])
+#        else:
+#            for col, field in enumerate(self.columns):
+#                self.create_row_widget( widget_class=field.type_widget, 
+#                                        widget_name=field.field_name,
+#                                        #widget_name=field.label,
+#                                        value=data_row[field.field_name], 
+#                                        row=row,
+#                                        column=col,
+#                                        width=field.width)
 
     @property
     def form(self):
@@ -720,26 +995,38 @@ class FrameGridSearch(FrameForm):
             self.last_clicked_row = event.widget.grid_info()['row']     #pega o numero da linha clicada
             #self.set_form_data(self.get_grid_data(int(event.widget.grid_info()['row'])))
             self.set_highlight_grid_line(self.last_clicked_row, self.bg_sel_line_grig)
+
+
     def set_filter(self, form_data):
+        '''
+            Ajusta o where do select, a ser executado, para preencher o grid, quando se clica no botão pesquisar
+            O citado where se baseia nos dados preenchidos no formulario que devem ser passados via parametro
+            form_data.
+            Parametros:
+                (form_data:dictionary): Dicionario com os campos que vão formar o where(filtro)
+            Return:
+                (None:sem retorno) Ajusta o where da propriedade self.grid_select_smt que vai ser utilizada 
+                    para pegar os dados do banco de dados e preencher o grid.
+        '''
         for key in form_data:
-            if form_data[key]:
-                field_name = self.filters[key].field_name
-                if self.filters[key].comparison_operator == Field.OP_LIKE:
+            #if form_data[key]:
+             if form_data[key] != '' and form_data[key] != None:
+                field_name = self.controls[key].field_name
+                if self.controls[key].comparison_operator == Field.OP_LIKE:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name].like(form_data[key])) 
-                elif self.filters[key].comparison_operator == Field.OP_GREATER:
+                elif self.controls[key].comparison_operator == Field.OP_GREATER:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] > form_data[key]) 
-                elif self.filters[key].comparison_operator == Field.OP_LESS:
+                elif self.controls[key].comparison_operator == Field.OP_LESS:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] < form_data[key]) 
-                elif self.filters[key].comparison_operator == Field.OP_GREATER_EQUAL:
+                elif self.controls[key].comparison_operator == Field.OP_GREATER_EQUAL:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] >= form_data[key]) 
-                elif self.filters[key].comparison_operator == Field.OP_LESS_EQUAL:
+                elif self.controls[key].comparison_operator == Field.OP_LESS_EQUAL:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] <= form_data[key]) 
-                elif self.filters[key].comparison_operator == Field.OP_EQUAL:
+                elif self.controls[key].comparison_operator == Field.OP_EQUAL:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key]) 
 
     def search(self):
-        #self.grid_select_stm = select(self.grid_table.c).distinct()
-        self.set_data_columns()  #ajusta o select da pesquisa
-        form_data = self.get_form_data()
-        self.set_filter(form_data)
-        self.get_grid_dbdata()
+        self.set_data_columns()             #ajusta o select da pesquisa (cria um novo self.grid_select_stm)
+        form_data = self.get_form_data()    #pega os dados do formulario
+        self.set_filter(form_data)          #com os dados do formulario aplica os filtros(em self.grid_select_stm)
+        self.get_grid_dbdata()              #Obtem os dados do banco de dados
