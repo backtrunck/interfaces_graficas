@@ -9,9 +9,32 @@ from .. import ChkButton, EntryDate
 from util import string_to_date, formatar_data, is_valid_date
 from fields import Field
 #from nfce_models import products_gtin_t, classe_produto_t
-DBField = namedtuple("DBField", ['field_name', 'comparison_operator', 'label', 'width', 'type_widget'])
+#DBField = namedtuple("DBField", ['field_name', 'comparison_operator', 'label', 'width', 'type_widget'])
 SearchField = namedtuple("Filter", ['field_name', 'comparison_operator', 'label', 'width'])
 FormControl = namedtuple('FormControl', ['field_name', 'comparison_operator', 'label', 'width', 'type_widget', 'widget'])
+
+class DBField():
+    def __init__(self, 
+                 field_name = None,
+                 comparison_operator='=',
+                 label='',
+                 width=5, 
+                 visible=True, 
+                 type_widget=tk.Entry):
+        
+        if not field_name:
+            raise Exception('Campo field_name obrigatório')
+        
+        self.field_name = field_name
+        self.comparison_operator = comparison_operator
+        if label:
+            self.label = label
+        else:
+            self.label = field_name
+        self.width = width
+        self.type_widget = type_widget
+        self.visible = visible
+
 
 class ComboBoxDB(ttk.Combobox):
     
@@ -54,7 +77,7 @@ class ComboBoxDB(ttk.Combobox):
     def set_key(self, key):        
         try:            
             #index = self.list_content.index(key)
-            index = [i[0] for i in self.list_content].index(int(key))
+            index = [int(i[0]) for i in self.list_content].index(int(key))
             #self.set(self.list_content[index][0])            
             self.current(index)
         except ValueError:            
@@ -72,12 +95,7 @@ class FrameForm(tk.Frame):
                 (data_table:object): Tabela 
         '''
         self.data_table = data_table
-#        if grid_table == None:
-#            
-#            super().__init__(master, connection, grid_table=grid_table, **args)
-#        else:
-#            super().__init__(master, connection, grid_table=data_table, **args)  
-            
+  
         super().__init__(master, **args)
         self.controls = OrderedDict()
         self.conn = connection
@@ -91,9 +109,6 @@ class FrameForm(tk.Frame):
         
         self._form = tk.Frame(self)
         self._form.pack(fill=tk.X)
-        
-        #self.frame_header = tk.Frame(self)
-        #self.frame_header.pack(fill=tk.X)
         
         if grid_table != None:
             self.grid_table = grid_table
@@ -193,7 +208,9 @@ class FrameForm(tk.Frame):
         '''
         if self.columns:                    #se columns contiver objetos DBField
             for col, field in enumerate(self.columns):
-                e = tk.Label(self.frame_header,text=field.label, width=field.width)
+                width = 1 if not field.visible else field.width #se o campo não for visivel, largura de 1
+                                                                #para não influenciar na largura do grid
+                e = tk.Label(self.frame_header,text=field.label, width=width)
                 e.grid(row = 0,column=col, sticky=tk.W)            
         else:
             for col, key in enumerate(self.controls.keys()):
@@ -211,7 +228,8 @@ class FrameForm(tk.Frame):
                                 value='', 
                                 row=0, 
                                 column=0, 
-                                width=11, 
+                                width=11,
+                                visible=True,  
                                 **kargs):
         '''
             Cria os widgets do grid, com os respectivos dados
@@ -219,16 +237,25 @@ class FrameForm(tk.Frame):
         
         if value is None:
             value = ''
-        if widget_class == tk.Entry:
-            e = widget_class(self.scrolled_frame,width=width,relief=tk.FLAT,   disabledbackground=self.bg_nor_line_grig, disabledforeground='black', **kargs)
-        
-            e.grid(row = row,column=column)
+        width_aux = 1 if not visible else width #se o campo não for visivel, largura de 1
+                                                 #para não influenciar na largura do grid
+        if widget_class == tk.Entry:                           
+            e = widget_class(self.scroll.scrollwindow,
+                             width=width_aux,
+                             relief=tk.FLAT,
+                             disabledbackground=self.bg_nor_line_grig, 
+                             disabledforeground='black',
+                             **kargs)
+            
+            e.grid(row = row,column=column, in_=self.scrolled_frame)
             e.insert(0, value)
             e.name = widget_name
             e.field_name = widget_field_name
             e.bind("<Key>", lambda a: "break")
             e.bind('<ButtonRelease>', self.row_click)        
             e.config(state=tk.DISABLED)
+            if not visible:
+                e.lower()
         if widget_class == ChkButton:
             e = widget_class(self.scrolled_frame,width=width, indicatoron=True,  background=self.bg_nor_line_grig, disabledforeground='black', **kargs)
             e.name = widget_name
@@ -275,6 +302,7 @@ class FrameForm(tk.Frame):
                                         value=data_row[field.field_name], 
                                         row=row,
                                         column=col,
+                                        visible= field.visible, 
                                         width=field.width)
 
     
@@ -418,7 +446,7 @@ class FrameForm(tk.Frame):
             sel.append(self.grid_table.c.get(field.field_name))
         self.grid_select_stm = select(sel).distinct() 
 
-            
+        
     def set_form_data(self, datum):
         '''
             Atualiza o contêudo dos widgets do form com os dados passados no parâmetros datum
@@ -481,6 +509,8 @@ class FrameForm(tk.Frame):
                 (widget:tk.Widget) widget que vai ter seu conteúdo alterado
                 (data:string) conteúdo a ser colocado no widget
         '''
+        if data == None:
+            data = ''
         if type(widget) == tk.Entry:
             last_state = widget['state']
             widget.config(state=tk.NORMAL)
@@ -621,11 +651,17 @@ class FrameFormDB(FrameForm):
         '''
     
         sel = select(table.c)
-        
+        included_key = False
         for key in form_data.keys():
             column = self.data_table.c[key]  #tem que usar self.data_table para que se possa usar as chaves primárias          
             if column.primary_key:
                 sel = sel.where(table.c.get(key) == form_data[key])
+                included_key = True
+        #se não achar nenhuma chave, filtra pelos próprios dados passados em form_data
+        if not included_key:
+            for key in form_data.keys():
+                sel = sel.where(table.c.get(key) == form_data[key])
+            
         result = self.conn.execute(sel)
         return result.fetchone()
 
@@ -650,23 +686,38 @@ class FrameFormData(FrameFormDB):
     STATE_UPDATE = 0
     STATE_INSERT = 1    
     
-    def __init__(self, master, connection, data_table=None, state=STATE_UPDATE,keys=[],   **args):
+    def __init__(self, 
+                 master, connection, 
+                 data_table=None,
+                 grid_table=None,  
+                 state=STATE_UPDATE,
+                 data_keys=[],
+                 grid_keys=[],
+                 enabled_update=True, 
+                 enabled_delete=True,
+                 enabled_new=True, 
+                 **args):
         
+        if grid_table != None and grid_keys == []: #caso tenha passado o grid e não tenha passada as chaves gera erro
+            raise Exception('grid_table sem grid_keys')
         self.data_table = data_table
                 
-        super().__init__(master, connection,data_table=data_table, grid_table=None, **args)
+        super().__init__(master, connection,data_table=data_table, grid_table=grid_table, **args)
         self.state=state
         
         if self.state == self.STATE_UPDATE:
-            self.keys=keys
+            self.data_keys=data_keys
             if self.check_keys():
                 return  None
         else:
-            self.keys = None
+            self.data_keys = None
 
-        self.add_widget_tool_bar(text='Salvar', width = 10, command=self.update)
-        self.add_widget_tool_bar(text='Apagar', width = 10, command=self.delete)
-        self.add_widget_tool_bar(text='Novo', width = 10, command=self.new)
+        if enabled_update:
+            self.add_widget_tool_bar(text='Salvar', width = 10, command=self.update)
+        if enabled_delete:
+            self.add_widget_tool_bar(text='Apagar', width = 10, command=self.delete)
+        if enabled_new:
+            self.add_widget_tool_bar(text='Novo', width = 10, command=self.new)
         
         
             
@@ -681,14 +732,14 @@ class FrameFormData(FrameFormDB):
             for field_name in self.data_table.c.keys(): #loop em todos os campos da tabela
                 column = self.data_table.c[field_name]
                 if column.primary_key:
-                    self.keys[field_name]   #se o campo não existir em self.keys, dá erro (não tem todas as chaves)
+                    self.data_keys[field_name]   #se o campo não existir em self.data_keys, dá erro (não tem todas as chaves)
         except KeyError:
             raise Exception(f'Chaves Primárias incompletas para a tabela {self.data_table.name}')
             return 1
         return 0
 
     def get_db_data(self):
-        result_proxy = self.conn.execute(select(self.data_table.c).where(self.keys)) 
+        result_proxy = self.conn.execute(select(self.data_table.c).where(self.data_keys)) 
         return result_proxy.fetchone()
 
 
@@ -700,8 +751,8 @@ class FrameFormData(FrameFormDB):
             if not askokcancel('Delete', 'Confirme a Operação'):
                 return
             dlt = self.data_table.delete()
-            for key in self.keys:
-                dlt = dlt.where(self.data_table.c[key] == self.keys[key])
+            for key in self.data_keys:
+                dlt = dlt.where(self.data_table.c[key] == self.data_keys[key])
             self.conn.execute(dlt)
             self.new()
 
@@ -723,9 +774,9 @@ class FrameFormData(FrameFormDB):
             transaction.rollback()
             print(f'Error: {e}')
             return -1
-        self.keys = self.get_form_keys()
+        self.data_keys = self.get_form_keys()
         self.state = self.STATE_UPDATE
-        data = self.get_form_dbdata(self.keys) 
+        data = self.get_form_dbdata(self.data_keys) 
         self.set_form_dbdata(data)
 
         return 0
@@ -736,28 +787,31 @@ class FrameFormData(FrameFormDB):
         '''
         
         self.clear_form()
-        self.keys = None
+        self.data_keys = None
         self.state = self.STATE_INSERT
+    
+    def row_click(self, event):
+        '''
+            Disparado ao clicar no grid
+            Pega os dados do grid e põe no form
+            metodo sobrescreve FrameForm.row_click para que ele não chame set_form_data
+            já que em FrameFormData self.controls que tem dados diferentes do grid.
+        '''
+        if event.num == 1: #se o botão esquerdo do mouse foi clicado
+            if self.last_clicked_row > 0:
+                self.set_highlight_grid_line(self.last_clicked_row, self.bg_nor_line_grig )
+            self.last_clicked_row = event.widget.grid_info()['row']     #pega o numero da linha clicada
+            #self.set_form_data(self.get_grid_data(int(event.widget.grid_info()['row'])))
+            
+            self.set_highlight_grid_line(self.last_clicked_row, self.bg_sel_line_grig)
 
     def set_filter(self,stm, form_data):
-        for key, value in self.keys:
+        for key, value in self.data_keys:
             stm.where(self.data_table[key] == value)
-#        for key in form_data:
-#            if form_data[key]:
-#                field_name = self.filters[key].field_name
-#                if self.filters[key].comparison_operator == Field.OP_LIKE:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.data_table.c[field_name].like(form_data[key])) 
-#                elif self.filters[key].comparison_operator == Field.OP_GREATER:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] > form_data[key]) 
-#                elif self.filters[key].comparison_operator == Field.OP_LESS:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] < form_data[key]) 
-#                elif self.filters[key].comparison_operator == Field.OP_GREATER_EQUAL:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] >= form_data[key]) 
-#                elif self.filters[key].comparison_operator == Field.OP_LESS_EQUAL:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] <= form_data[key]) 
-#                elif self.filters[key].comparison_operator == Field.OP_EQUAL:
-#                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key]) 
-
+    
+    def set_filter_grid(self, list_key):
+        for key, value in list_key.items():
+            self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[key] == value) 
 
     def update(self):
         '''
@@ -773,16 +827,13 @@ class FrameFormData(FrameFormDB):
                     return self.insert()
                 form_data = self.convert_data_to_bd(self.get_form_data())
                 form_keys = self.get_form_keys()
-                #grid_keys = self.get_grid_keys(self.last_clicked_row)
                 updt = self.data_table.update()
-                #for key in grid_keys:
-                for key in self.keys:
-                    updt = updt.where(self.data_table.c[key] == self.keys[key])
+                for key in self.data_keys:
+                    updt = updt.where(self.data_table.c[key] == self.data_keys[key])
                 updt = updt.values(**form_data)
                 self.conn.execute(updt)
                 for key in form_keys:
-                    self.keys[key] = form_keys[key]
-                #self.set_grid_line()                
+                    self.data_keys[key] = form_keys[key]
                 return 0
             return -1
         except Exception as e:
@@ -955,24 +1006,6 @@ class FrameGridSearch(FrameForm):
         super().add_widget(filter, widget)
         #self.filters[filter.label] = filter  
 
-#    def fill_row(self, row, data_row):
-#        '''
-#            Criar os widgets do grid a partir dos controles do form(self.controls) e já preenche os dados nele
-#        '''
-#        if not self.columns:
-#            for col, key in enumerate(self.controls.keys()):
-#                self.create_row_widget(widget_class=tk.Entry, widget_name=key, value=data_row[key], 
-#                                        row=row, column=col, width=self.controls[key].widget['width'])
-#        else:
-#            for col, field in enumerate(self.columns):
-#                self.create_row_widget( widget_class=field.type_widget, 
-#                                        widget_name=field.field_name,
-#                                        #widget_name=field.label,
-#                                        value=data_row[field.field_name], 
-#                                        row=row,
-#                                        column=col,
-#                                        width=field.width)
-
     @property
     def form(self):
         return self._form_search
@@ -996,6 +1029,13 @@ class FrameGridSearch(FrameForm):
             #self.set_form_data(self.get_grid_data(int(event.widget.grid_info()['row'])))
             self.set_highlight_grid_line(self.last_clicked_row, self.bg_sel_line_grig)
 
+
+    
+    def search(self):
+        self.set_data_columns()             #ajusta o select da pesquisa (cria um novo self.grid_select_stm)
+        form_data = self.get_form_data()    #pega os dados do formulario
+        self.set_filter(form_data)          #com os dados do formulario aplica os filtros(em self.grid_select_stm)
+        self.get_grid_dbdata()              #Obtem os dados do banco de dados
 
     def set_filter(self, form_data):
         '''
@@ -1024,9 +1064,3 @@ class FrameGridSearch(FrameForm):
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] <= form_data[key]) 
                 elif self.controls[key].comparison_operator == Field.OP_EQUAL:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key]) 
-
-    def search(self):
-        self.set_data_columns()             #ajusta o select da pesquisa (cria um novo self.grid_select_stm)
-        form_data = self.get_form_data()    #pega os dados do formulario
-        self.set_filter(form_data)          #com os dados do formulario aplica os filtros(em self.grid_select_stm)
-        self.get_grid_dbdata()              #Obtem os dados do banco de dados

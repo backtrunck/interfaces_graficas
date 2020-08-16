@@ -115,10 +115,18 @@ class ScrolledWindow(tk.Frame):
         if self.canv_header == None:
             self._set_header()
         for c, header in enumerate(data_header):
-            e= tk.Entry(self.scroll_header, relief=tk.FLAT, background=self.canv_header['background'], width=header.width)
+            width = 1 if not header.visible else header.width #se o campo não for visivel, largura de 1
+                                                                #para não influenciar na largura do grid
+            # antes os widget eram filhos de self.scroll_header                                                    
+            e= tk.Entry(self.canv_header,
+                        relief=tk.FLAT, 
+                        background=self.canv_header['background'], 
+                        width=width)
             #e = tk.Label(self.scroll_header, relief=tk.FLAT, text=header.label, width=header.width)
             e.insert(tk.END, header.label)
-            e.grid(row=0, column = c)
+            e.grid(row=0, column = c, in_=self.scroll_header)
+            if not header.visible:
+               e.lower()
 
 
     def _set_header(self):
