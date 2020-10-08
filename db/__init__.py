@@ -1,3 +1,4 @@
+import datetime
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter.messagebox import askokcancel
@@ -5,7 +6,7 @@ from collections import OrderedDict, namedtuple
 from sqlalchemy.sql import select, sqltypes
 #from interfaces_graficas.ScrolledWindow import ScrolledWindow
 from ..ScrolledWindow import ScrolledWindow
-from .. import ChkButton, EntryDate
+from .. import ChkButton, EntryDate, EntryDateTime
 from util import string_to_date, formatar_data, is_valid_date
 from fields import Field
 #from nfce_models import products_gtin_t, classe_produto_t
@@ -103,6 +104,7 @@ class FrameForm(tk.Frame):
         self.last_clicked_row = -1
         self.last_inserted_row = -1
         
+        #self.format_date = False  #indica se as data serão transformada (para apresentação do formato iso (yyyy-mm-dd hh:mm:
         
         self.bg_sel_line_grig = 'gray71'
         self.bg_nor_line_grig = 'white'
@@ -239,7 +241,7 @@ class FrameForm(tk.Frame):
             value = ''
         width_aux = 1 if not visible else width #se o campo não for visivel, largura de 1
                                                  #para não influenciar na largura do grid
-        if widget_class == tk.Entry:                           
+        if widget_class == tk.Entry or widget_class == EntryDate or widget_class == EntryDateTime:                           
             e = widget_class(self.scroll.scrollwindow,
                              width=width_aux,
                              relief=tk.FLAT,
@@ -248,7 +250,10 @@ class FrameForm(tk.Frame):
                              **kargs)
             
             e.grid(row = row,column=column, in_=self.scrolled_frame)
-            e.insert(0, value)
+            if widget_class == EntryDate or widget_class == EntryDateTime:
+                e.set(value)
+            else:
+                e.insert(0, value)
             e.name = widget_name
             e.field_name = widget_field_name
             e.bind("<Key>", lambda a: "break")
@@ -413,8 +418,10 @@ class FrameForm(tk.Frame):
                 return ""
             else:
                 return result
-        elif type(widget) == ChkButton or type(widget) == EntryDate:
+        elif type(widget) == ChkButton :
             return widget.get()
+        elif type(widget) == EntryDate or type(widget) == EntryDateTime:
+            return widget.get_date()
            
    
         
@@ -457,23 +464,21 @@ class FrameForm(tk.Frame):
         for key in self.controls.keys():
             data = datum[key]
             form_widget = self.controls[key].widget
+            
             self.set_widget_data(form_widget, data)
-
-
-#    def set_form_widget(self, widget):
-#        form_widget = self.controls[widget.name]
-#        if type(form_widget) == tk.Entry:
-#            if form_widget['state'] == 'readonly':
-#                readonly = True
-#                form_widget.config(state=tk.NORMAL)
-#            else:
-#                readonly = False
-#            form_widget.delete(0, tk.END)
-#            form_widget.insert(0, widget.get())
-#            if readonly:
-#                form_widget.config(state='readonly')
     
-
+    def set_form_data_partial(self, datum):
+        '''
+            Atualiza o contêudo de alguns ou todos os widgets do form com os dados passados no parâmetros datum
+            Parâmetros
+                (datum:dicionario) Dicionario com os dados que vão ser colocado nos widget, as chaves(key) de datum
+                    devem ser idênticas as chaves(key) de self.controls
+        '''
+        for key in datum.keys():
+            data = datum[key]
+            form_widget = self.controls[key].widget
+            self.set_widget_data(form_widget, data)
+            
     def set_grid_line(self):
         '''
             Pega os dados do formulaŕio e atualiza a linha atual do grid
@@ -496,7 +501,7 @@ class FrameForm(tk.Frame):
         for widget in self.scrolled_frame.grid_slaves():
         
             if widget.grid_info()['row'] == row:
-                if type(widget) == tk.Entry:
+                if type(widget) == tk.Entry or type(widget) == EntryDate or type(widget) == EntryDateTime:
                     widget['disabledbackground']= background
                 if type(widget) == ChkButton:
                     widget['background']= background 
@@ -530,7 +535,7 @@ class FrameForm(tk.Frame):
             else:
                 widget.unset()
             return 0
-        elif type(widget) == EntryDate:
+        elif type(widget) == EntryDate or type(widget) == EntryDateTime:
             last_state = widget['state']
             widget.config(state=tk.NORMAL)
             widget.delete(0, tk.END)
@@ -569,9 +574,10 @@ class FrameFormDB(FrameForm):
             if (not col.nullable and not data and not insert) or (insert and not col.nullable and not data and not col.autoincrement):
                 return (key, 'null')
             elif col.type._type_affinity in [sqltypes.Date, sqltypes.DateTime]:
-                if data:                    
-                    if not is_valid_date(data):
-                        return(key, 'invalid_data')
+                if data: 
+                    if type(data) != datetime.datetime:
+                        if not is_valid_date(data):
+                            return(key, 'invalid_data')
             elif col.type._type_affinity in [sqltypes.Integer]:
                 if data:                    
                     try: 
@@ -602,10 +608,22 @@ class FrameFormDB(FrameForm):
         for key in data.keys():
             col = self.data_table.c.get(self.controls[key].field_name)
             if col.type._type_affinity in [sqltypes.Date, sqltypes.DateTime]:
-                if is_valid_date(data[key]):
-                    datum[col.name] = string_to_date(data[key])
+                if type(data[key]) == datetime.datetime: #se o tipo já for datetime.datetime
+                    datum[col.name] = data[key]
                 else:
-                    datum[col.name] = None
+                    if is_valid_date(data[key]):
+                        datum[col.name] = string_to_date(data[key])
+                    else:
+                        try: #verifica se é datetime
+                            dt_time = datetime.datetime.strptime(data[key],'%d/%m/%Y %H:%M')
+                            datetime_valid = True
+                        except ValueError:
+                            dt_time = datetime.datetime.strptime(data[key],'%Y-%m-%d %H:%M:%S')
+                            datetime_valid = True
+                        if datetime_valid:   
+                           datum[col.name] = dt_time
+                        else:
+                            datum[col.name] = None
             elif col.type._type_affinity in [sqltypes.Integer]:
                 try: 
                     datum[col.name] = int(data[key])
@@ -651,7 +669,7 @@ class FrameFormDB(FrameForm):
         '''
     
         sel = select(table.c)
-        included_key = False
+        included_key = False  #para saber se usou as chaves primárias no primeiro select
         for key in form_data.keys():
             column = self.data_table.c[key]  #tem que usar self.data_table para que se possa usar as chaves primárias          
             if column.primary_key:
@@ -721,7 +739,31 @@ class FrameFormData(FrameFormDB):
         
         
             
+    def after_new(self):
+        '''
+            Método para ser utilizado pela classes filhas. Usado para ações após o New(Novo) 
+        '''        
+        pass
         
+    def after_update(self):
+        '''
+            Método para ser utilizado pela classes filhas. Usado para ações após o update 
+        '''        
+        pass
+        
+    def after_insert(self):
+        '''
+            Método para ser utilizado pela classes filhas. Usado para ações após o insert 
+        '''  
+        pass
+
+
+    def before_insert(self):
+        '''
+            Método para ser utilizado pela classes filhas. Usado para ações antes do insert 
+        '''  
+        pass
+
 
     def check_keys(self):
         '''
@@ -774,10 +816,13 @@ class FrameFormData(FrameFormDB):
             transaction.rollback()
             print(f'Error: {e}')
             return -1
-        self.data_keys = self.get_form_keys()
-        self.state = self.STATE_UPDATE
-        data = self.get_form_dbdata(self.data_keys) 
-        self.set_form_dbdata(data)
+        self.set_form_dbdata(form_data) #atualiza os campos autoincrements do form
+        self.data_keys = self.get_form_keys() #pega as chaves primárias
+        self.state = self.STATE_UPDATE #muda o estado para update
+        data = self.get_form_dbdata(self.data_keys)  #pega os dados no BD. 
+                                                     #Caso haja alterações no BD o form ficará atualizado
+        self.set_form_dbdata(data) #ajusta os dados do form
+        self.after_insert()     #chama after insert para que os filhos façam algo(caso necessário)
 
         return 0
 
@@ -789,6 +834,7 @@ class FrameFormData(FrameFormDB):
         self.clear_form()
         self.data_keys = None
         self.state = self.STATE_INSERT
+        self.after_new()
     
     def row_click(self, event):
         '''
@@ -819,6 +865,7 @@ class FrameFormData(FrameFormDB):
         '''   
         try:
             if self.state == self.STATE_INSERT:
+                self.before_insert() #ações nos filhos, antes do insert
                 result = self.check_form_for_update(insert=True)
             else:
                 result = self.check_form_for_update(insert=False)            
@@ -834,6 +881,7 @@ class FrameFormData(FrameFormDB):
                 self.conn.execute(updt)
                 for key in form_keys:
                     self.data_keys[key] = form_keys[key]
+                self.after_update()
                 return 0
             return -1
         except Exception as e:
@@ -992,6 +1040,7 @@ class FrameGridSearch(FrameForm):
         f = tk.Frame(self._form)
         f.pack(fill=tk.X)
         tk.Button(f, text='Pesquisar', width = 10, command=self.search).pack(side=tk.RIGHT, padx=2, pady=5)
+        master.bind('<Return>', lambda e: self.search())
     
     
     def add_widget(self, filter, widget):
@@ -1053,7 +1102,7 @@ class FrameGridSearch(FrameForm):
              if form_data[key] != '' and form_data[key] != None:
                 field_name = self.controls[key].field_name
                 if self.controls[key].comparison_operator == Field.OP_LIKE:
-                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name].like(form_data[key])) 
+                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name].like('%' + form_data[key] + '%')) 
                 elif self.controls[key].comparison_operator == Field.OP_GREATER:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] > form_data[key]) 
                 elif self.controls[key].comparison_operator == Field.OP_LESS:
