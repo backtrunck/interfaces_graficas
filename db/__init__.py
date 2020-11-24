@@ -648,7 +648,9 @@ class FrameFormDB(FrameForm):
         datum = {}
         for key in data.keys():
             if self.data_table.c.get(key).autoincrement == True:
+                #retirado tava dando erro no mysql 8, ## a resolver ##
                 result = self.conn.execute(f'select auto_increment from information_schema.tables where table_name = "{self.data_table.name}" LOCK IN SHARE MODE ')
+#                result = self.conn.execute(f'select auto_increment from information_schema.tables where table_name = "{self.data_table.name}"')
                 datum[key] = result.fetchone()[0]
             else:
                 datum[key] = data[key]
