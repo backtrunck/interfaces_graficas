@@ -3,7 +3,7 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter.messagebox import askokcancel
 from collections import OrderedDict, namedtuple
-from sqlalchemy.sql import select, sqltypes
+from sqlalchemy.sql import select, sqltypes, desc
 #from interfaces_graficas.ScrolledWindow import ScrolledWindow
 from ..ScrolledWindow import ScrolledWindow
 from .. import ChkButton, EntryDate, EntryDateTime
@@ -1030,7 +1030,7 @@ class FrameGridManipulation(FrameFormDB):
             return -1
 
 class FrameGridSearch(FrameForm):
-    def __init__(self, master, connection, grid_table=None, **kwargs):
+    def __init__(self, master, connection, grid_table=None,order_by=[], **kwargs):
         
         #self.filters = {}
         if grid_table == None:
@@ -1038,7 +1038,7 @@ class FrameGridSearch(FrameForm):
         super().__init__(master, connection, data_table=None, grid_table=grid_table, **kwargs)
         self._form_search = tk.Frame(self._form)
         self._form_search.pack(fill=tk.X)
-        
+        self.order_by = order_by
         f = tk.Frame(self._form)
         f.pack(fill=tk.X)
         tk.Button(f, text='Pesquisar', width = 10, command=self.search).pack(side=tk.RIGHT, padx=2, pady=5)
@@ -1086,6 +1086,7 @@ class FrameGridSearch(FrameForm):
         self.set_data_columns()             #ajusta o select da pesquisa (cria um novo self.grid_select_stm)
         form_data = self.get_form_data()    #pega os dados do formulario
         self.set_filter(form_data)          #com os dados do formulario aplica os filtros(em self.grid_select_stm)
+        self.set_order_by()                 #aplica o order by
         self.get_grid_dbdata()              #Obtem os dados do banco de dados
 
     def set_filter(self, form_data):
@@ -1114,4 +1115,20 @@ class FrameGridSearch(FrameForm):
                 elif self.controls[key].comparison_operator == Field.OP_LESS_EQUAL:
                     self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] <= form_data[key]) 
                 elif self.controls[key].comparison_operator == Field.OP_EQUAL:
-                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key]) 
+                    self.grid_select_stm = self.grid_select_stm.where(self.grid_table.c[field_name] == form_data[key])
+    def set_order_by(self):
+        '''
+        Estabelece o order by do select por meio duma lista de tuplas passada pelo parametro order_by no init da classe,
+         o conteúdo desta lista fica na variável da classe self.order_by. O conteúdo da tupla deve ser (nome_do_campo,
+         ordem) sendo que ordem deve ser: 1-para ordem descendente e 0-para ascendente
+        :return: sem retorno
+        '''
+        if self.order_by != []:
+            for campo,ordem in self.order_by:
+                if ordem == 0:
+                    self.grid_select_stm = self.grid_select_stm.order_by(self.grid_table.c[campo])
+                elif ordem == 1:
+                    self.grid_select_stm = self.grid_select_stm.order_by(desc(self.grid_table.c[campo]))
+                else:
+                    raise('O campo ordem deve ter valor 1 para descendente e 0 para ascendente')
+
