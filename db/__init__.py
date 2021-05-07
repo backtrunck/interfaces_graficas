@@ -1,8 +1,3 @@
-from sys import path
-from os.path import dirname as dir
-path.append(dir(path[0]))
-print(dir(path[0]))
-
 import datetime
 import tkinter as tk
 import tkinter.ttk as ttk
