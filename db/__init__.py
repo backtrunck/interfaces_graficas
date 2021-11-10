@@ -8,7 +8,7 @@ from sqlalchemy.sql import select, sqltypes, desc
 from ..ScrolledWindow import ScrolledWindow
 from .. import ChkButton, EntryDate, EntryDateTime
 from util import string_to_date, formatar_data, is_valid_date
-from nfce.fields import Field
+from fields import Field
 #from nfce_models import products_gtin_t, classe_produto_t
 #DBField = namedtuple("DBField", ['field_name', 'comparison_operator', 'label', 'width', 'type_widget'])
 SearchField = namedtuple("Filter", ['field_name', 'comparison_operator', 'label', 'width'])
